@@ -42,6 +42,7 @@ from actions_silent_lint.patterns import (
     compile_entry,
     selected,
 )
+from actions_silent_lint.shapes import is_list, is_mapping
 
 
 @dataclass(frozen=True)
@@ -67,8 +68,8 @@ class Unchecked:
 
 @dataclass(frozen=True)
 class Verdict:
-    findings: list[Finding] = field(default_factory=list)
-    unchecked: list[Unchecked] = field(default_factory=list)
+    findings: list[Finding] = field(default_factory=list[Finding])
+    unchecked: list[Unchecked] = field(default_factory=list[Unchecked])
 
 
 class Unreadable(Exception):
@@ -82,7 +83,7 @@ def workflow_name(document: object) -> str | None:
     text, so it is turned into text rather than dropped, which would strand
     every entry naming it.
     """
-    if not isinstance(document, Mapping):
+    if not is_mapping(document):
         raise Unreadable("the document's top level is not a mapping")
     if "name" not in document:
         return None
@@ -97,18 +98,18 @@ def declared_parents(document: object) -> list[str]:
     forms that cannot carry a `workflows:` key (`on: push`, `on: [push]`) and a
     `workflow_run:` without one declare nothing; any other value raises.
     """
-    if not isinstance(document, Mapping):
+    if not is_mapping(document):
         raise Unreadable("the document's top level is not a mapping")
     triggers = document.get("on")
-    if not isinstance(triggers, Mapping):
+    if not is_mapping(triggers):
         return []
     chain = triggers.get("workflow_run")
-    if not isinstance(chain, Mapping) or "workflows" not in chain:
+    if not is_mapping(chain) or "workflows" not in chain:
         return []
     value = chain["workflows"]
     if isinstance(value, str):
         return [value]
-    if isinstance(value, list):
+    if is_list(value):
         for entry in value:
             if not isinstance(entry, str):
                 raise Unreadable(

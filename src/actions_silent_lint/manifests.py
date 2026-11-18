@@ -73,7 +73,6 @@ load.
 
 from __future__ import annotations
 
-from collections.abc import Mapping
 from dataclasses import dataclass
 from typing import Final
 
@@ -84,6 +83,7 @@ from actions_silent_lint.expressions import (
     segments,
     trim,
 )
+from actions_silent_lint.shapes import is_list, is_mapping
 
 # The opener alone, not a whole expression: an unterminated `${{` fails to load
 # too, and requiring the closer would pass it as plain text.
@@ -288,7 +288,7 @@ def bare_condition(text: str) -> list[str]:
 def judge(path: str, manifest: object) -> list[Finding]:
     """Every expression GitHub would refuse, by its position and by what it
     names, in document order, so one run reports all of them."""
-    if not isinstance(manifest, Mapping):
+    if not is_mapping(manifest):
         # Nothing is read from such a document, so passing it would be a pass
         # over nothing; GitHub cannot load it as an action either.
         return [Finding(path, "-", "the file is not an action mapping")]
@@ -313,7 +313,7 @@ def judge(path: str, manifest: object) -> list[Finding]:
     # is the same position as the author spelled it, which is what a finding
     # names.
     def walk(node: object, position: Position, written: Position) -> None:
-        if isinstance(node, Mapping):
+        if is_mapping(node):
             for key, value in node.items():
                 name = str(key)
                 read = literal_text(name)
@@ -322,7 +322,7 @@ def judge(path: str, manifest: object) -> list[Finding]:
                 for what in text(name, here, key=True):
                     findings.append(Finding(path, render(shown), what))
                 walk(value, here, shown)
-        elif isinstance(node, list):
+        elif is_list(node):
             for index, value in enumerate(node):
                 walk(value, (*position, index), (*written, index))
         elif isinstance(node, str):

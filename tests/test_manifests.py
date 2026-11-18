@@ -173,7 +173,11 @@ class Manifests(unittest.TestCase):
         )
 
     def test_an_unterminated_expression_is_a_finding(self) -> None:
-        manifest = {"name": "a", "description": "see ${{ job.status", "runs": {}}
+        manifest: dict[str, object] = {
+            "name": "a",
+            "description": "see ${{ job.status",
+            "runs": {},
+        }
         self.assertEqual(
             [f.position for f in judge("a.yml", manifest)], ["description"]
         )
