@@ -157,23 +157,69 @@ class Patterns(unittest.TestCase):
         self.assertEqual(len(verdict.findings), 1)
         self.assertEqual(len(verdict.unchecked), 1)
 
-    def test_a_negation_is_counted_and_never_fails(self) -> None:
-        # What a ! entry does depends on the entries before it, a question
-        # about the whole list that is not judged; the entry beside it still
-        # is.
-        verdict = judge(
-            {"build.yml": BUILD, "p.yml": child("Build*", "!Build", "Gone")}
-        )
-        self.assertEqual(verdict.unchecked, [Unchecked("p.yml", "!Build")])
-        self.assertEqual(
-            [f.what for f in verdict.findings],
-            [
-                (
-                    'workflow_run names "Gone", which is no workflow\'s name:, so the'
-                    " trigger never fires"
+    def test_negations_that_remove_every_parent_are_a_finding(self) -> None:
+        # Each entry matches a workflow, yet the list selects none, and that
+        # trigger never fires either.
+        for entries in (("Build*", "!Build"), ("!Build",), ("Build", "!")):
+            with self.subTest(entries=entries):
+                verdict = judge({"build.yml": BUILD, "p.yml": child(*entries)})
+                if entries == ("Build", "!"):
+                    # `!` alone removes only the empty name.
+                    self.assertEqual((verdict.findings, verdict.unchecked), ([], []))
+                    continue
+                self.assertEqual(
+                    [f.what for f in verdict.findings],
+                    [
+                        (
+                            "workflow_run selects no workflow: a ! entry removes only"
+                            " names an entry before it matched, and these remove them"
+                            " all, so the trigger never fires"
+                        )
+                    ],
                 )
-            ],
-        )
+                self.assertEqual(verdict.unchecked, [])
+
+    def test_a_negation_that_leaves_a_parent_passes(self) -> None:
+        names = {"build.yml": BUILD, "docs.yml": {"name": "Build docs"}}
+        verdict = judge({**names, "p.yml": child("Build*", "!Build docs")})
+        self.assertEqual((verdict.findings, verdict.unchecked), ([], []))
+
+    def test_a_negation_matching_nothing_is_not_a_finding(self) -> None:
+        # It removes nothing, which stops no trigger from firing.
+        verdict = judge({"build.yml": BUILD, "p.yml": child("Build", "!Gone")})
+        self.assertEqual((verdict.findings, verdict.unchecked), ([], []))
+
+    def test_a_name_unlike_the_measured_ones_leaves_negations_unchecked(
+        self,
+    ) -> None:
+        # The measured names were printable ASCII. How GitHub's stars treat a
+        # line break, or anything outside ASCII, was not measured, and read
+        # as matching, a negation would remove the name and report a trigger
+        # GitHub fires.
+        for name in ("Build\nprod", "Build \u00e9t\u00e9", "Build\tprod"):
+            with self.subTest(name=name):
+                verdict = judge(
+                    {"b.yml": {"name": name}, "p.yml": child("Build*", "!**")}
+                )
+                self.assertEqual(verdict.findings, [])
+                self.assertEqual(verdict.unchecked, [Unchecked("p.yml", "!**")])
+
+    def test_negations_are_unchecked_when_the_rest_was_not_all_judged(
+        self,
+    ) -> None:
+        # A list with a dead, unmodelled or refused entry, or a negation that
+        # is one of those, cannot be read as a whole; the entry beside it is
+        # still judged on its own.
+        for entries, negation, findings in (
+            (("Build*", "!Build", "Gone"), "!Build", 1),
+            (("Build \\d", "!Build"), "!Build", 0),
+            (("Build", "![Build"), "![Build", 0),
+            (("Build", "!\\d"), "!\\d", 0),
+        ):
+            with self.subTest(entries=entries):
+                verdict = judge({"build.yml": BUILD, "p.yml": child(*entries)})
+                self.assertEqual(len(verdict.findings), findings)
+                self.assertIn(Unchecked("p.yml", negation), verdict.unchecked)
 
 
 class Shapes(unittest.TestCase):

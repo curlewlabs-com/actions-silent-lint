@@ -33,9 +33,7 @@ this module against each one. What came out:
                holding anything else is refused
     \\c        c itself, for any punctuation or space; a trailing \\ is refused
     leading !  the entry removes the names it matches from those the entries
-               before it selected; entries are applied in order (what that
-               does to a list is not judged: parents.py counts a ! entry as
-               not checked)
+               before it selected; entries are applied in order
     else       the character itself: . ( ) | ^ $ { } # and the rest are
                literal, and case is significant
 
@@ -50,6 +48,7 @@ of four or more `*`.
 
 from __future__ import annotations
 
+from collections.abc import Iterable, Sequence
 from dataclasses import dataclass
 from typing import Final
 
@@ -252,3 +251,18 @@ def compile_entry(entry: str) -> Pattern:
     if not anchored:
         elements.insert(0, ("many", _ANYTHING))
     return Pattern(entry, negated, literal, tuple(elements))
+
+
+def selected(patterns: Sequence[Pattern], names: Iterable[str]) -> set[str]:
+    """The names a whole `workflows:` list selects: each name the last entry
+    matching it was not a negation for, as GitHub was measured to apply
+    them."""
+    chosen: set[str] = set()
+    for name in names:
+        state = False
+        for pattern in patterns:
+            if pattern.matches(name):
+                state = not pattern.negated
+        if state:
+            chosen.add(name)
+    return chosen
