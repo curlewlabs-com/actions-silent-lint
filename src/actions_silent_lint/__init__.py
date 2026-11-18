@@ -1,0 +1,14 @@
+"""Check that every workflow_run trigger names a workflow that exists, and that
+no action manifest holds an expression where GitHub does not evaluate one. See
+the README.
+
+The command is the interface (cli.py); parents.py judges the triggers and
+manifests.py the manifests.
+"""
+
+import sys
+
+# Checked here, before any other module of the package is imported, so an older
+# interpreter gets this message rather than a syntax error from a newer form.
+if sys.version_info < (3, 12):  # noqa: UP036 - the point is to run on older ones
+    sys.exit("actions-silent-lint needs Python 3.12 or newer")
