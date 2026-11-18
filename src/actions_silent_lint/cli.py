@@ -11,8 +11,8 @@ judged is the one GitHub reads, not its text. It prints one line per finding
 and exits 1 on any; it also exits 1, with the reason on stderr, when it could
 not judge, since a lint that did not run must not read as clean. A
 `workflows:` entry using a pattern construct the lint does not model, or a `!`
-entry, is not judged and never fails the run; how many there were is printed
-to stderr.
+entry its list cannot be judged with, is not judged and never fails the run;
+how many there were is printed to stderr.
 """
 
 from __future__ import annotations

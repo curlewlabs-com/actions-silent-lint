@@ -18,6 +18,7 @@ from actions_silent_lint.patterns import (
     Invalid,
     Unmodelled,
     compile_entry,
+    selected,
 )
 
 REFUSED = None
@@ -399,10 +400,17 @@ UNMODELLED = frozenset({"\\Build", "\\d", "B\\x75ild", "Bu\\ild"})
 
 
 class Measured(unittest.TestCase):
+    def test_every_measured_list_with_a_negation(self) -> None:
+        # Measured as a whole: what each name ends up as after every entry.
+        lists = [(e, m) for e, m in MEASURED if any(x.startswith(NEGATION) for x in e)]
+        self.assertTrue(lists)
+        for entries, matched in lists:
+            with self.subTest(entries=entries):
+                patterns = [compile_entry(entry) for entry in entries]
+                self.assertEqual(selected(patterns, NAMES), matched)
+
     def test_every_measured_single_entry(self) -> None:
-        # A list holding a ! entry was measured as a whole, and what a
-        # negation does to a list is not judged, so those cases are the record
-        # only.
+        # The lists holding a ! entry are checked as wholes above.
         for entries, matched in MEASURED:
             if any(entry.startswith(NEGATION) for entry in entries):
                 continue

@@ -10,10 +10,16 @@ GitHub reads each entry as a filter pattern, and patterns.py matches them as
 GitHub was measured to: an entry with no pattern syntax matches the one name
 it spells, exactly. Each entry is judged on its own: one that matches no
 workflow's name is a finding, and so is one GitHub refuses as a pattern. An
-entry using a construct patterns.py does not model, and every `!` entry,
-whose effect depends on the whole list, is counted and reported as not
-checked rather than judged by a reading that could be wrong in either
+entry using a construct patterns.py does not model is counted and reported as
+not checked rather than judged by a reading that could be wrong in either
 direction.
+
+A list holding `!` entries is also judged as a whole, since its negations can
+remove every workflow the other entries match, and that trigger never fires
+either. The whole-list reading is only as good as every part of it, so it is
+made only when each entry was judged, none was dead, and every workflow name
+is the kind the measurement used, printable ASCII; otherwise the `!` entries
+are counted as not checked, as an unmodelled entry is.
 
 The whole set of workflows is judged together, since a trigger's parent can be
 any workflow in the repository, and GitHub fires `workflow_run` only for
@@ -28,7 +34,14 @@ import json
 from collections.abc import Mapping
 from dataclasses import dataclass, field
 
-from actions_silent_lint.patterns import NEGATION, Invalid, Unmodelled, compile_entry
+from actions_silent_lint.patterns import (
+    NEGATION,
+    Invalid,
+    Pattern,
+    Unmodelled,
+    compile_entry,
+    selected,
+)
 
 
 @dataclass(frozen=True)
@@ -133,20 +146,32 @@ def judge(workflows: Mapping[str, object]) -> Verdict:
     return verdict
 
 
+def _measured_like(name: str) -> bool:
+    """Whether a workflow name holds only the characters the measured names
+    did: printable ASCII, the space included."""
+    return all(" " <= character <= "~" for character in name)
+
+
 def _judge_trigger(
     path: str, entries: list[str], names: set[str], verdict: Verdict
 ) -> list[Finding]:
     findings: list[Finding] = []
+    patterns: list[Pattern] = []
+    negations: list[str] = []
+    judged_all = True
     for entry in entries:
-        # A negation removes names other entries matched, so what it does is
-        # a question about the whole list, which is not judged here.
-        if entry.startswith(NEGATION):
-            verdict.unchecked.append(Unchecked(path, entry))
-            continue
+        negated = entry.startswith(NEGATION)
+        if negated:
+            negations.append(entry)
         shown = json.dumps(entry)
         try:
             pattern = compile_entry(entry)
         except Invalid as reason:
+            judged_all = False
+            # Whether GitHub refuses a negation of an invalid pattern was not
+            # measured, so only a positive entry is reported as refused.
+            if negated:
+                continue
             findings.append(
                 Finding(
                     path,
@@ -156,9 +181,12 @@ def _judge_trigger(
             )
             continue
         except Unmodelled:
-            verdict.unchecked.append(Unchecked(path, entry))
+            judged_all = False
+            if not negated:
+                verdict.unchecked.append(Unchecked(path, entry))
             continue
-        if any(pattern.matches(name) for name in names):
+        patterns.append(pattern)
+        if negated or any(pattern.matches(name) for name in names):
             continue
         if pattern.literal:
             what = (
@@ -176,4 +204,18 @@ def _judge_trigger(
                     " before each pattern character"
                 )
         findings.append(Finding(path, what))
+    if not negations:
+        return findings
+    if not judged_all or findings or not all(_measured_like(name) for name in names):
+        verdict.unchecked.extend(Unchecked(path, entry) for entry in negations)
+        return findings
+    if not selected(patterns, names):
+        findings.append(
+            Finding(
+                path,
+                "workflow_run selects no workflow: a ! entry removes only names"
+                " an entry before it matched, and these remove them all, so the"
+                " trigger never fires",
+            )
+        )
     return findings

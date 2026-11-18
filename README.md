@@ -82,7 +82,11 @@ and the lint matches it the same way: `Build*` matches `Build and test` but not
 `Build / test`, `Build C\+\+` matches `Build C++`, and an entry with no
 pattern syntax matches only the name it spells, exactly. Each entry is judged
 on its own: a pattern that matches no workflow is a finding, and so is an entry
-GitHub refuses as a pattern (an unclosed `[`, for one). A workflow without a `name:` cannot be named this way: add one. A
+GitHub refuses as a pattern (an unclosed `[`, for one). A list holding `!`
+entries is judged as a whole too, since its negations can remove every
+workflow the others match; that is a finding, made only when every entry was
+judged and every workflow name is printable ASCII, like the names measured. A
+workflow without a `name:` cannot be named this way: add one. A
 workflow file whose top level is not a mapping, or a `workflows:` value that is
 not a string or a list of strings, is a finding, since reading it as naming
 nothing would pass the mistake this lint is for.
@@ -125,9 +129,12 @@ as a finding on a manifest that loads, never as a silent pass.
   and a run of four or more `*`. An entry using one is not judged. It never
   fails the run, and the lint prints how many entries were skipped and which
   ones.
-- **`!` entries.** What a negation does depends on the entries before it, so a
-  `!` entry is counted as not checked in the same way, and a list whose
-  negations remove every workflow the others match passes.
+- **`!` entries the list cannot be read with.** When an entry of the list was
+  dead, refused or not modelled, or a workflow name holds a line break or
+  anything outside printable ASCII, which the measurement did not cover, the
+  list is not judged as a whole and its `!` entries are counted as not checked
+  in the same way. A `!` entry that removes no workflow is not reported, since
+  it stops no trigger from firing.
 - **The rest of an expression's syntax.** The lint reads which contexts and
   functions an expression names, not whether the rest of it parses, so
   `${{ inputs.a == }}` passes and fails to load.
