@@ -207,6 +207,62 @@ class Manifests(unittest.TestCase):
                     ],
                 )
 
+    def test_an_escaped_literal_passes_where_no_expression_may_sit(self) -> None:
+        # GitHub turns a string that is one expression holding only a quoted
+        # literal into that text before it checks the position, so this loads;
+        # reporting it would fail a manifest GitHub accepts.
+        literal = "${{ 'Use ${{ inputs.token }} here' }}"
+        manifest = {
+            "name": literal,
+            "description": "${{ 'it''s' }}",
+            "inputs": {"token": {"description": literal}, literal: {}},
+            literal: "x",
+            "runs": {"using": "node24", "main": "${{ 'index.js' }}"},
+        }
+        self.assertEqual(judge("action.yml", manifest), [])
+
+    def test_an_escaped_key_is_judged_as_the_key_github_reads(self) -> None:
+        # The runner reads the key as its literal text before it picks the
+        # key's schema, so `${{ 'default' }}` is an input's default and its
+        # expression is evaluated; judged by the spelling instead, the valid
+        # expression beneath it would be reported.
+        manifest = {
+            "inputs": {"ref": {"${{ 'default' }}": "${{ github.ref }}"}},
+            "${{ 'runs' }}": {
+                "using": "composite",
+                "steps": [{"run": "${{ inputs.ref }}", "shell": "sh"}],
+            },
+        }
+        self.assertEqual(judge("action.yml", manifest), [])
+
+    def test_a_finding_beneath_an_escaped_key_names_it_as_written(self) -> None:
+        # An author searches for the spelling in the file, not the text the
+        # runner turns it into.
+        manifest = {"${{ 'runs' }}": {"using": "${{ inputs.kind }}"}}
+        self.assertEqual(
+            [f.position for f in judge("action.yml", manifest)],
+            ["${{ 'runs' }}.using"],
+        )
+
+    def test_a_literal_beside_text_or_another_expression_is_a_finding(self) -> None:
+        # Only the whole string as one literal is turned into text; anything
+        # else is an expression, which these positions refuse.
+        for text in (
+            "${{ 'a' }} and text",
+            "${{ 'a' }}${{ 'b' }}",
+            "${{ 'a' || inputs.b }}",
+            "${{ 'unclosed }}",
+        ):
+            with self.subTest(text=text):
+                self.assertEqual(
+                    [f.position for f in judge("a.yml", {"description": text})],
+                    ["description"],
+                )
+                self.assertEqual(
+                    [f.what for f in judge("a.yml", {"inputs": {text: {}}})],
+                    ["a key holds a ${{ }} expression"],
+                )
+
     def test_a_document_that_is_not_a_mapping_is_a_finding(self) -> None:
         # There is nothing in it to judge, so passing it would be a pass over
         # nothing; GitHub cannot load it as an action either.

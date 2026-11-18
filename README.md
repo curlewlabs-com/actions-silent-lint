@@ -82,8 +82,11 @@ depth. The lint allows a `${{` only where GitHub's action metadata schema
 evaluates one: an input's `default`, an output's `value`, each entry of a
 docker action's `args` (not `args` as a whole) and its `env`, and a composite
 step's `name`, `if`, `run`, `shell`, `working-directory`, `continue-on-error`,
-`env` and `with`. Anywhere else, mapping keys included, it is a finding (GitHub
-accepts one form there that the lint still reports; see Known issues). A
+`env` and `with`. Anywhere else, mapping keys included, it is a finding. The
+one exception is a string that is a single expression holding only a quoted
+string, such as `${{ 'Use ${{ inputs.token }} here' }}`: GitHub turns it into
+that text before it checks the position, so it loads anywhere, and the lint
+reads it the same way. A
 position the schema adds later is treated as not evaluated until the table in
 `src/actions_silent_lint/manifests.py` names it, so a change in GitHub shows up
 as a finding on a manifest that loads, never as a silent pass.
@@ -104,15 +107,6 @@ as a finding on a manifest that loads, never as a silent pass.
 - **Triggers that stopped matching for another reason**, such as a `branches:`
   filter the parent's runs no longer match, or a `workflow_run:` block that
   was deleted.
-
-## Known issues
-
-- **An escaped literal is reported.** GitHub turns a string that is one
-  expression holding only a quoted string, such as
-  `description: "${{ 'Use ${{ inputs.token }} here' }}"`, into that literal
-  text before it checks the position, so the manifest loads. The lint reports
-  it anyway, as it reports any `${{` outside an evaluated position. Write the
-  reference without the delimiters instead (`inputs.token`).
 
 ## License
 

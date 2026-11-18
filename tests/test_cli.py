@@ -134,6 +134,18 @@ class TheCommand(unittest.TestCase):
             ["action.yml", "tools/notify/action.yaml"],
         )
 
+    def test_an_escaped_literal_in_a_manifest_passes(self) -> None:
+        # The form GitHub turns into plain text, as YAML spells it in a plain,
+        # a double-quoted and a single-quoted scalar.
+        self.write(
+            "action.yml",
+            "name: ${{ 'Notify' }}\n"
+            "description: \"${{ 'Use ${{ inputs.token }} here' }}\"\n"
+            "inputs:\n  token:\n    description: '${{ ''it''''s'' }}'\n"
+            "runs:\n  using: node24\n  main: i.js\n",
+        )
+        self.assertEqual(run(), (0, "", ""))
+
     def test_from_a_subdirectory_the_whole_repository_is_read(self) -> None:
         # Listed relative to the current directory, nothing would be found,
         # and an empty run passes.
