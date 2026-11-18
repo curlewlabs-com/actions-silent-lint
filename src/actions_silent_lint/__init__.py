@@ -1,5 +1,5 @@
 """Check that every workflow_run trigger names a workflow that exists, and that
-no action manifest holds an expression where GitHub does not evaluate one. See
+no action manifest holds an expression GitHub refuses to load. See
 the README.
 
 The command is the interface (cli.py); parents.py judges the triggers and

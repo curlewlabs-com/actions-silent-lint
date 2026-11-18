@@ -1,5 +1,5 @@
 name: actions-silent-lint
-description: Fail on any workflow_run trigger naming no workflow, and on any expression in an action manifest field GitHub does not evaluate.
+description: Fail on any workflow_run trigger naming no workflow, and on any action manifest expression GitHub refuses to load.
 author: Curlew Labs
 branding:
   icon: bell-off
