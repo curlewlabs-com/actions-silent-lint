@@ -103,20 +103,32 @@ class TheCommand(unittest.TestCase):
         self.workflow("publish.yaml", chained("[Build]"))
         self.assertEqual(run(), (0, "", ""))
 
-    def test_patterns_are_counted_and_never_fail(self) -> None:
+    def test_patterns_are_judged(self) -> None:
         self.workflow("build.yml", BUILD)
-        self.workflow("publish.yml", chained('["Build*", "Build C\\\\+\\\\+"]'))
+        self.workflow("publish.yml", chained('["Bu*", "Lint*"]'))
+        status, out, err = run()
+        self.assertEqual((status, err), (1, ""))
+        self.assertEqual(
+            out,
+            '.github/workflows/publish.yml: workflow_run pattern "Lint*" matches'
+            " no workflow's name:, so it never fires\n",
+        )
+
+    def test_unmodelled_entries_are_counted_and_never_fail(self) -> None:
+        self.workflow("build.yml", BUILD)
+        self.workflow("publish.yml", chained('["Build", "\\\\d", "B\\\\w"]'))
         status, out, err = run()
         self.assertEqual((status, out), (0, ""))
         self.assertEqual(
             err,
             "2 workflow_run entries are patterns and were not checked:\n"
-            '  .github/workflows/publish.yml: "Build*"\n'
-            '  .github/workflows/publish.yml: "Build C\\\\+\\\\+"\n',
+            '  .github/workflows/publish.yml: "\\\\d"\n'
+            '  .github/workflows/publish.yml: "B\\\\w"\n',
         )
 
-    def test_one_pattern_is_counted_in_the_singular(self) -> None:
-        self.workflow("publish.yml", chained('["Build*"]'))
+    def test_one_unmodelled_entry_is_counted_in_the_singular(self) -> None:
+        self.workflow("build.yml", BUILD)
+        self.workflow("publish.yml", chained('["Build", "\\\\d"]'))
         self.assertEqual(
             run()[2].splitlines()[0],
             "1 workflow_run entry is a pattern and was not checked:",

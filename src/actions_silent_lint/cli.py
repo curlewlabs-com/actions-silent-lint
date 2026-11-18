@@ -10,8 +10,9 @@ mikefarah's `yq` from PATH, with anchors and aliases expanded, so the document
 judged is the one GitHub reads, not its text. It prints one line per finding
 and exits 1 on any; it also exits 1, with the reason on stderr, when it could
 not judge, since a lint that did not run must not read as clean. A
-`workflows:` entry that is a pattern is not judged and never fails the run;
-how many there were is printed to stderr.
+`workflows:` entry using a pattern construct the lint does not model, or a `!`
+entry, is not judged and never fails the run; how many there were is printed
+to stderr.
 """
 
 from __future__ import annotations

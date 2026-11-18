@@ -82,24 +82,98 @@ class Triggers(unittest.TestCase):
 
 
 class Patterns(unittest.TestCase):
-    def test_each_pattern_character_leaves_the_entry_unchecked(self) -> None:
-        # GitHub matches these on its servers by rules that cannot be checked
-        # here; judging them would fail runs that GitHub would fire.
-        entries = ["Build*", "Build ?", "C\\+\\+", "CI [x]", "!Docs", "a+b"]
-        verdict = judge({"build.yml": BUILD, "p.yml": child(*entries)})
-        self.assertEqual(verdict.findings, [])
-        self.assertEqual(verdict.unchecked, [Unchecked("p.yml", e) for e in entries])
+    def test_a_pattern_matching_a_parent_passes(self) -> None:
+        names = {"build.yml": BUILD, "cpp.yml": {"name": "Build C++"}}
+        for entry in ("Build*", "Bu?ild", "[AB]uild", "Build C\\+\\+", "**"):
+            with self.subTest(entry=entry):
+                verdict = judge({**names, "p.yml": child(entry)})
+                self.assertEqual((verdict.findings, verdict.unchecked), ([], []))
 
-    def test_a_name_holding_brackets_is_not_passed_as_resolved(self) -> None:
-        # Read literally, this entry matches the name exactly and would pass,
-        # but GitHub reads the brackets as a character class.
+    def test_a_pattern_matching_no_parent_is_a_finding(self) -> None:
+        # The renamed-parent mistake, made through a pattern: `*` stops at a
+        # `/`, so this matches neither name.
+        verdict = judge(
+            {"b.yml": {"name": "Deploy / prod"}, "p.yml": child("Build*", "Deploy*")}
+        )
+        self.assertEqual(
+            [f.what for f in verdict.findings],
+            [
+                (
+                    'workflow_run pattern "Build*" matches no workflow\'s name:, so'
+                    " it never fires"
+                ),
+                (
+                    'workflow_run pattern "Deploy*" matches no workflow\'s name:, so'
+                    " it never fires"
+                ),
+            ],
+        )
+
+    def test_a_name_holding_pattern_characters_needs_them_escaped(self) -> None:
+        # Read literally this entry would equal the name, but GitHub reads the
+        # brackets as a character class, which matches `CI x` and not this.
         verdict = judge({"ci.yml": {"name": "CI [x]"}, "p.yml": child("CI [x]")})
-        self.assertEqual(verdict.unchecked, [Unchecked("p.yml", "CI [x]")])
+        self.assertEqual(
+            [f.what for f in verdict.findings],
+            [
+                (
+                    'workflow_run pattern "CI [x]" matches no workflow\'s name:, so'
+                    " it never fires; a workflow is named that, and matching it"
+                    " takes a \\ before each pattern character"
+                )
+            ],
+        )
+        escaped = judge({"ci.yml": {"name": "CI [x]"}, "p.yml": child("CI \\[x\\]")})
+        self.assertEqual(escaped.findings, [])
 
-    def test_a_literal_beside_a_pattern_is_still_judged(self) -> None:
-        verdict = judge({"build.yml": BUILD, "p.yml": child("Build*", "Gone")})
+    def test_a_refused_pattern_is_a_finding(self) -> None:
+        verdict = judge({"build.yml": BUILD, "p.yml": child("Build", "[Build")})
+        self.assertEqual(
+            [f.what for f in verdict.findings],
+            [
+                (
+                    'workflow_run entry "[Build" is not a pattern GitHub accepts: a'
+                    " [ is never closed"
+                )
+            ],
+        )
+
+    def test_an_unmodelled_entry_is_counted_and_never_fails(self) -> None:
+        # GitHub hands `\d` to a regular expression engine; judging it by a
+        # guess could fail a trigger GitHub fires.
+        verdict = judge({"build.yml": BUILD, "p.yml": child("Build \\d")})
+        self.assertEqual(verdict.findings, [])
+        self.assertEqual(verdict.unchecked, [Unchecked("p.yml", "Build \\d")])
+
+    def test_a_backslash_inside_brackets_is_counted_not_refused(self) -> None:
+        # Whether GitHub refuses it was not measured, so reporting it as a
+        # refused pattern could fail a trigger GitHub fires.
+        verdict = judge({"build.yml": BUILD, "p.yml": child("Build[A-\\x5a]")})
+        self.assertEqual(verdict.findings, [])
+        self.assertEqual(verdict.unchecked, [Unchecked("p.yml", "Build[A-\\x5a]")])
+
+    def test_a_literal_beside_an_unmodelled_entry_is_still_judged(self) -> None:
+        verdict = judge({"build.yml": BUILD, "p.yml": child("Build \\d", "Gone")})
         self.assertEqual(len(verdict.findings), 1)
         self.assertEqual(len(verdict.unchecked), 1)
+
+    def test_a_negation_is_counted_and_never_fails(self) -> None:
+        # What a ! entry does depends on the entries before it, a question
+        # about the whole list that is not judged; the entry beside it still
+        # is.
+        verdict = judge(
+            {"build.yml": BUILD, "p.yml": child("Build*", "!Build", "Gone")}
+        )
+        self.assertEqual(verdict.unchecked, [Unchecked("p.yml", "!Build")])
+        self.assertEqual(
+            [f.what for f in verdict.findings],
+            [
+                (
+                    'workflow_run names "Gone", which is no workflow\'s name:, so the'
+                    " trigger never fires"
+                )
+            ],
+        )
 
 
 class Shapes(unittest.TestCase):
