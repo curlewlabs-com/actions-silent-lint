@@ -44,6 +44,8 @@ class Positions(unittest.TestCase):
             ("outputs", "result", "description"),
             ("branding", "icon"),
             ("branding", "color"),
+            # The schema gives the items of args a context, not args itself.
+            ("runs", "args"),
             # Unnamed, so read as not evaluated: the table fails closed.
             ("metadata", "owner"),
         ):
@@ -132,6 +134,24 @@ class Manifests(unittest.TestCase):
             },
         }
         self.assertEqual(judge("action.yml", manifest), [])
+
+    def test_an_expression_standing_in_for_a_docker_actions_args_is_a_finding(
+        self,
+    ) -> None:
+        # Each argument is evaluated, the list is not, and GitHub rejects a
+        # manifest whose args is one expression.
+        manifest = {
+            "name": "Build image",
+            "description": "d",
+            "runs": {
+                "using": "docker",
+                "image": "Dockerfile",
+                "args": "${{ inputs.a }}",
+            },
+        }
+        self.assertEqual(
+            [f.position for f in judge("action.yml", manifest)], ["runs.args"]
+        )
 
     def test_an_expression_in_an_input_description_is_a_finding(self) -> None:
         # The mistake this exists for: prose that describes a value with the

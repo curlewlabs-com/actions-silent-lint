@@ -79,9 +79,10 @@ as naming nothing would pass the mistake this lint is for.
 
 **Action manifests.** Each tracked `action.yml` and `action.yaml`, at any
 depth. A `${{` is allowed only where GitHub's action metadata schema evaluates
-one: an input's `default`, an output's `value`, a docker action's `args` and
-`env`, and a composite step's `name`, `if`, `run`, `shell`,
-`working-directory`, `continue-on-error`, `env` and `with`. Anywhere else,
+one: an input's `default`, an output's `value`, each entry of a docker
+action's `args` (not `args` as a whole) and its `env`, and a composite step's
+`name`, `if`, `run`, `shell`, `working-directory`, `continue-on-error`, `env`
+and `with`. Anywhere else,
 mapping keys included, it is a finding. A position the schema adds later is
 treated as not evaluated until the table in `src/actions_silent_lint/manifests.py`
 names it, so a change in GitHub shows up as a finding on a manifest that loads,

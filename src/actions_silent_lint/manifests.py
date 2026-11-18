@@ -81,9 +81,11 @@ EVALUATED_FIELDS: Final[tuple[Pattern, ...]] = (
     ("runs", "steps", ANY, "continue-on-error"),
 )
 
-# Mappings and sequences whose context covers every string beneath them.
+# Mappings and sequence items whose context covers every string beneath them.
+# For `args` the context is on each item, not on the list, so an expression
+# standing in for the whole list is not evaluated.
 EVALUATED_SUBTREES: Final[tuple[Pattern, ...]] = (
-    ("runs", "args"),
+    ("runs", "args", ANY),
     ("runs", "env"),
     ("runs", "steps", ANY, "env"),
     ("runs", "steps", ANY, "with"),
