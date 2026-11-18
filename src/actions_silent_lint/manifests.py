@@ -49,7 +49,10 @@ which is loud and is fixed by naming it above.
 
 This decides where an expression may sit, not which contexts it may name
 there: `${{ secrets.TOKEN }}` in a composite `run:` fails to load and passes
-here, since knowing that means parsing the expression language.
+here, since knowing that means parsing the expression language. The same
+limit runs the other way once: a string that is one expression holding only a
+quoted string literal is turned into that text before its position is
+checked, so GitHub accepts it anywhere, and this still reports it.
 """
 
 from __future__ import annotations
