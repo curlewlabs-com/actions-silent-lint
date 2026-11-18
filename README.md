@@ -13,9 +13,10 @@ notify/action.yml: inputs.status.description: holds a ${{ }} expression where Gi
 - **A `workflow_run` trigger that names no workflow.** The trigger never fires.
   No run fails and nothing is reported, so the workflow stops without anyone
   noticing.
-- **A `${{ }}` expression in an action manifest field GitHub does not
-  evaluate**, such as an input's `description:`. The action fails to load, on
-  the first job that uses it.
+- **A `${{ }}` expression an action manifest cannot hold**: one in a field
+  GitHub does not evaluate, such as an input's `description:`, or one naming a
+  context the field does not have, such as `secrets` in a composite step's
+  `run:`. The action fails to load, on the first job that uses it.
 
 ## Why it exists
 
@@ -29,6 +30,9 @@ validation reaches fields it never evaluates. So an input described as "the
 caller's `${{ job.status }}`" is a manifest that fails to load: `job` is not
 something a description can name. The prose reads naturally, and the failure
 arrives in whichever workflow first uses the action, which may be after merge.
+The same goes for an action that reaches for `${{ secrets.TOKEN }}` in a step:
+an action cannot read its caller's secrets, so the manifest fails to load
+rather than the step failing.
 
 Neither is caught by the common linters. With actionlint 1.7.12 and zizmor
 1.32.0 (its `pedantic` persona), a trigger naming two workflows that do not
@@ -86,8 +90,16 @@ step's `name`, `if`, `run`, `shell`, `working-directory`, `continue-on-error`,
 one exception is a string that is a single expression holding only a quoted
 string, such as `${{ 'Use ${{ inputs.token }} here' }}`: GitHub turns it into
 that text before it checks the position, so it loads anywhere, and the lint
-reads it the same way. A
-position the schema adds later is treated as not evaluated until the table in
+reads it the same way.
+
+Where an expression may sit, it may name only the contexts and functions the
+schema lists for that field, besides the expression language's own functions:
+a composite step's `run:` has `inputs`, `steps`, `env` and the others but not
+`secrets` or `vars`, an input's `default` has no `inputs`, and only a step's
+`if` has `success()` and the other status functions. A composite step's `if`
+written without delimiters is read as one expression too, and judged against
+the runner's list for that form. An unterminated or empty `${{` is a finding
+wherever it is. A position the schema adds later is treated as not evaluated until the table in
 `src/actions_silent_lint/manifests.py` names it, so a change in GitHub shows up
 as a finding on a manifest that loads, never as a silent pass.
 
@@ -100,10 +112,9 @@ as a finding on a manifest that loads, never as a silent pass.
   which ones. This also means a literal name holding one of those characters,
   such as `CI [x]`, is skipped, not passed as resolved: GitHub would read it as
   a pattern.
-- **Which contexts an expression names.** The lint checks where an expression
-  sits, not what it says. `${{ secrets.TOKEN }}` in a composite step's `run:`
-  sits in an evaluated position, so it passes, but an action cannot read
-  `secrets` and fails to load. GitHub's validator above reports it.
+- **The rest of an expression's syntax.** The lint reads which contexts and
+  functions an expression names, not whether the rest of it parses, so
+  `${{ inputs.a == }}` passes and fails to load.
 - **Triggers that stopped matching for another reason**, such as a `branches:`
   filter the parent's runs no longer match, or a `workflow_run:` block that
   was deleted.

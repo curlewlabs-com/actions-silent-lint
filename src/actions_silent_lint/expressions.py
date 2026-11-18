@@ -127,3 +127,112 @@ def literal_text(text: str) -> str | None:
     if len(parts) != 1 or not parts[0][0]:
         return None
     return string_literal(trim(parts[0][1]))
+
+
+# Characters that end a word or a number, as the runner's lexer has them
+# (LexicalAnalyzer.TestTokenBoundary), besides whitespace.
+_BOUNDARY: Final = frozenset("([)],.!><=&|")
+# The token kinds a `.` after which starts a number rather than a property.
+_BEFORE_A_NUMBER: Final = frozenset(
+    {None, "separator", "start-group", "start-index", "start-parameters", "logical"}
+)
+# Words the lexer reads as literals, compared case-sensitively as it does.
+_LITERAL_WORDS: Final = frozenset({"null", "true", "false", "NaN", "Infinity"})
+_TWO_CHARACTER_OPERATORS: Final = frozenset({"!=", ">=", "<=", "==", "&&", "||"})
+
+
+def _is_boundary(character: str) -> bool:
+    return character in _BOUNDARY or is_whitespace(character)
+
+
+def _is_legal_word(word: str) -> bool:
+    if not ("a" <= word[0] <= "z" or "A" <= word[0] <= "Z" or word[0] == "_"):
+        return False
+    return all(
+        "a" <= c <= "z" or "A" <= c <= "Z" or "0" <= c <= "9" or c in "_-"
+        for c in word[1:]
+    )
+
+
+def references(expression: str) -> tuple[list[str], list[str]]:
+    """The named values (contexts) and the functions an expression names, in
+    order, as the runner's lexer classifies its words.
+
+    Transcribed from LexicalAnalyzer
+    (https://github.com/actions/runner/blob/main/src/Sdk/DTExpressions2/Expressions2/Tokens/LexicalAnalyzer.cs):
+    a word after `.` is a property, a word followed by `(` is a function, the
+    literal words are literals, and any other word is a named value; text in
+    quotes is a string. The lexer also turns a token that may not follow the
+    one before it into an error, which only an expression the parser refuses
+    has, so that is left out: a word read here as a named value is one in
+    every expression GitHub accepts.
+    """
+    named: list[str] = []
+    functions: list[str] = []
+    last: str | None = None
+    i, n = 0, len(expression)
+    while True:
+        while i < n and is_whitespace(expression[i]):
+            i += 1
+        if i >= n:
+            return named, functions
+        c = expression[i]
+        kind: str
+        if c == "(":
+            kind = "start-parameters" if last == "function" else "start-group"
+            i += 1
+        elif c == "[":
+            kind, i = "start-index", i + 1
+        elif c in ")],*":
+            kind = {")": "end", "]": "end-index", ",": "separator", "*": "wildcard"}[c]
+            i += 1
+        elif c == "'":
+            i += 1
+            kind = "error"
+            while i < n:
+                i += 1
+                if expression[i - 1] == "'":
+                    if i >= n or expression[i] != "'":
+                        kind = "string"
+                        break
+                    i += 1
+        elif c in "!><=&|":
+            if expression[i : i + 2] in _TWO_CHARACTER_OPERATORS:
+                kind, i = "logical", i + 2
+            elif c in "!><":
+                kind, i = "logical", i + 1
+            else:
+                i += 1
+                while i < n and not _is_boundary(expression[i]):
+                    i += 1
+                kind = "error"
+        elif c == "." and last not in _BEFORE_A_NUMBER:
+            kind, i = "dereference", i + 1
+        elif c in ".-+" or "0" <= c <= "9":
+            i += 1
+            while i < n and (not _is_boundary(expression[i]) or expression[i] == "."):
+                i += 1
+            kind = "number"
+        else:
+            start = i
+            i += 1
+            while i < n and not _is_boundary(expression[i]):
+                i += 1
+            word = expression[start:i]
+            if not _is_legal_word(word):
+                kind = "error"
+            elif last == "dereference":
+                kind = "property"
+            elif word in _LITERAL_WORDS:
+                kind = "literal"
+            else:
+                ahead = i
+                while ahead < n and is_whitespace(expression[ahead]):
+                    ahead += 1
+                if ahead < n and expression[ahead] == "(":
+                    kind = "function"
+                    functions.append(word)
+                else:
+                    kind = "named-value"
+                    named.append(word)
+        last = kind

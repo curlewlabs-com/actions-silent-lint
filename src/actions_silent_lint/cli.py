@@ -81,8 +81,8 @@ def main(argv: Sequence[str] | None = None) -> int:
     parser = argparse.ArgumentParser(
         prog="actions-silent-lint",
         description="Check that every workflow_run trigger names a workflow that"
-        " exists, and that no action manifest holds an expression where GitHub"
-        " does not evaluate one.",
+        " exists, and that no action manifest holds an expression GitHub refuses"
+        " to load.",
     )
     parser.parse_args(argv)
     try:

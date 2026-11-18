@@ -12,6 +12,7 @@ from actions_silent_lint.expressions import (
     MAX_LENGTH,
     NotClosed,
     literal_text,
+    references,
     segments,
     trim,
 )
@@ -86,6 +87,42 @@ class LiteralText(unittest.TestCase):
         # and the expression no longer starts with a quote.
         self.assertEqual(trim("\u001f x \u2003"), "\u001f x")
         self.assertIsNone(literal_text("${{ \u001f'a' }}"))
+
+
+class References(unittest.TestCase):
+    """Which words the runner's lexer reads as contexts and functions."""
+
+    def test_named_values_and_functions_are_told_apart(self) -> None:
+        self.assertEqual(
+            references("contains(github.ref, inputs.a) && success ()"),
+            (["github", "inputs"], ["contains", "success"]),
+        )
+
+    def test_a_word_after_a_dot_is_a_property(self) -> None:
+        self.assertEqual(references("steps.a.outputs.b"), (["steps"], []))
+        self.assertEqual(references("fromJSON(x).secrets"), (["x"], ["fromJSON"]))
+
+    def test_strings_hold_no_names(self) -> None:
+        self.assertEqual(
+            references("format('{0} secrets.T ''q'' x', a)"), (["a"], ["format"])
+        )
+
+    def test_a_dot_starts_a_number_after_an_operator_or_opening(self) -> None:
+        # So `.5` is a number, not a property of what came before.
+        self.assertEqual(references("a == .5 || [.5]"), (["a"], []))
+
+    def test_a_number_runs_to_the_next_boundary(self) -> None:
+        # The lexer reads `1secrets` as one (bad) number, not as a number and
+        # a named value, so nothing here is a context.
+        self.assertEqual(references("1secrets"), ([], []))
+
+    def test_the_literal_words_are_matched_exactly(self) -> None:
+        self.assertEqual(
+            references("true false null NaN Infinity True"), (["True"], [])
+        )
+
+    def test_a_word_the_lexer_refuses_names_nothing(self) -> None:
+        self.assertEqual(references("a$b 9"), ([], []))
 
 
 if __name__ == "__main__":

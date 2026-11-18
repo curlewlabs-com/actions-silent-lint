@@ -274,5 +274,238 @@ class Manifests(unittest.TestCase):
                 )
 
 
+def step(**fields: object) -> dict[str, object]:
+    """A composite action whose one step has `fields`."""
+    return {
+        "name": "a",
+        "description": "d",
+        "runs": {"using": "composite", "steps": [{"shell": "sh", **fields}]},
+    }
+
+
+def problems(manifest: object) -> list[tuple[str, str]]:
+    return [(f.position, f.what) for f in judge("action.yml", manifest)]
+
+
+class Contexts(unittest.TestCase):
+    def test_a_secret_in_a_composite_run_is_a_finding(self) -> None:
+        # The mistake this exists for: an action cannot read the caller's
+        # secrets, so the manifest fails to load though `run:` is evaluated.
+        self.assertEqual(
+            problems(step(run="curl -H ${{ secrets.TOKEN }} x")),
+            [
+                (
+                    "runs.steps[0].run",
+                    "names secrets, which is not a context GitHub provides here",
+                )
+            ],
+        )
+
+    def test_each_position_has_its_own_contexts(self) -> None:
+        # Transcribed from the schema's lists; each of these loads.
+        manifest = {
+            "inputs": {"ref": {"default": "${{ github.ref }}-${{ hashFiles('x') }}"}},
+            "outputs": {"o": {"value": "${{ steps.s.outputs.o }}${{ env.E }}"}},
+            "runs": {
+                "using": "composite",
+                "steps": [
+                    {
+                        "id": "s",
+                        "if": "${{ success() && inputs.ok }}",
+                        "name": "${{ matrix.os }} ${{ strategy.job-index }}",
+                        "run": "${{ runner.os }} ${{ job.status }} ${{ hashFiles('a') }}",
+                        "shell": "${{ inputs.shell }}",
+                        "working-directory": "${{ github.workspace }}",
+                        "continue-on-error": "${{ inputs.lenient }}",
+                        "env": {"${{ inputs.name }}": "${{ steps.s.outputs.v }}"},
+                    }
+                ],
+            },
+        }
+        self.assertEqual(problems(manifest), [])
+
+    def test_a_context_one_position_has_another_lacks(self) -> None:
+        # An input's default is read before the action's inputs exist, an
+        # output has no hashFiles, and a docker action's args and env see
+        # only its inputs; only a step's `if` has the status functions.
+        for manifest, position, what in (
+            (
+                {"inputs": {"a": {"default": "${{ inputs.b }}"}}},
+                "inputs.a.default",
+                "names inputs, which is not a context GitHub provides here",
+            ),
+            (
+                {"outputs": {"o": {"value": "${{ hashFiles('x') }}"}}},
+                "outputs.o.value",
+                "calls hashFiles(), which is not a function GitHub provides here",
+            ),
+            (
+                {"runs": {"using": "docker", "args": ["${{ github.sha }}"]}},
+                "runs.args[0]",
+                "names github, which is not a context GitHub provides here",
+            ),
+            (
+                {"runs": {"using": "docker", "env": {"A": "${{ env.B }}"}}},
+                "runs.env.A",
+                "names env, which is not a context GitHub provides here",
+            ),
+            (
+                step(run="${{ success() }}"),
+                "runs.steps[0].run",
+                "calls success(), which is not a function GitHub provides here",
+            ),
+            (
+                step(uses="./x", **{"with": {"k": "${{ vars.V }}"}}),
+                "runs.steps[0].with.k",
+                "names vars, which is not a context GitHub provides here",
+            ),
+        ):
+            with self.subTest(position=position):
+                self.assertEqual(problems(manifest), [(position, what)])
+
+    def test_a_key_in_a_mapping_with_a_context_is_judged_by_it(self) -> None:
+        manifest = step(run="x", env={"${{ secrets.NAME }}": "v"})
+        self.assertEqual(
+            problems(manifest),
+            [
+                (
+                    "runs.steps[0].env.${{ secrets.NAME }}",
+                    "names secrets, which is not a context GitHub provides here",
+                )
+            ],
+        )
+
+    def test_names_and_functions_ignore_case_as_the_runner_does(self) -> None:
+        self.assertEqual(
+            problems(step(run="${{ GitHub.SHA }} ${{ HASHFILES('a') }}")), []
+        )
+        self.assertEqual(
+            [what for _, what in problems(step(run="${{ Secrets.T }}"))],
+            ["names Secrets, which is not a context GitHub provides here"],
+        )
+
+    def test_only_a_named_value_is_a_context(self) -> None:
+        # A property, a string, a function's argument that is a string, and
+        # the literal words name no context; reading any of them as one would
+        # fail a manifest that loads.
+        for expression in (
+            "steps.secrets.outputs.x",
+            "github.event['secrets']",
+            "fromJSON(inputs.x).secrets",
+            "format('{0} secrets', inputs.x)",
+            "true && null || 1.5 != NaN && Infinity",
+            "toJSON(github.*.secrets)",
+            "case(inputs.a, 'x', 'y')",
+        ):
+            with self.subTest(expression=expression):
+                self.assertEqual(problems(step(run="${{ " + expression + " }}")), [])
+
+    def test_a_context_inside_a_call_or_an_index_is_found(self) -> None:
+        for expression in (
+            "format('{0}', secrets.T)",
+            "github.event[secrets.key]",
+            "!secrets.T",
+            "(inputs.a || secrets.T)",
+        ):
+            with self.subTest(expression=expression):
+                self.assertEqual(
+                    [
+                        what
+                        for _, what in problems(step(run="${{ " + expression + " }}"))
+                    ],
+                    ["names secrets, which is not a context GitHub provides here"],
+                )
+
+    def test_the_literal_words_are_case_sensitive(self) -> None:
+        # `True` is not the literal `true` to the runner's lexer, so it is a
+        # named value, and no position has one by that name.
+        self.assertEqual(
+            [what for _, what in problems(step(run="${{ True }}"))],
+            ["names True, which is not a context GitHub provides here"],
+        )
+
+    def test_a_name_used_twice_in_one_string_is_reported_once(self) -> None:
+        self.assertEqual(
+            len(problems(step(run="${{ secrets.A }} ${{ secrets.B }}"))), 1
+        )
+
+    def test_an_unknown_function_is_a_finding(self) -> None:
+        self.assertEqual(
+            [what for _, what in problems(step(run="${{ toYaml(inputs.a) }}"))],
+            ["calls toYaml(), which is not a function GitHub provides here"],
+        )
+
+    def test_an_unterminated_or_empty_expression_is_a_finding(self) -> None:
+        # The runner refuses both wherever they sit, evaluated or not.
+        self.assertEqual(
+            [what for _, what in problems(step(run="echo ${{ inputs.a"))],
+            ["holds a ${{ with no }} after it"],
+        )
+        self.assertEqual(
+            [what for _, what in problems(step(run="echo ${{  }}"))],
+            ["holds an empty ${{ }}"],
+        )
+
+    def test_the_insert_directive_is_a_key_not_a_context(self) -> None:
+        # As the whole key of a mapping with a context it splices in a
+        # mapping, which loads; as a value it is no context at all.
+        manifest = step(run="x", env={"${{ insert }}": "${{ fromJSON(inputs.e) }}"})
+        self.assertEqual(problems(manifest), [])
+        self.assertEqual(
+            [what for _, what in problems(step(run="${{ insert }}"))],
+            ["names insert, which is not a context GitHub provides here"],
+        )
+
+
+class BareConditions(unittest.TestCase):
+    """A step `if:` without delimiters is one expression, which the runner
+    checks against its own list of step condition names."""
+
+    def test_a_bare_condition_naming_a_secret_is_a_finding(self) -> None:
+        self.assertEqual(
+            problems(step(run="x", **{"if": "secrets.T != ''"})),
+            [
+                (
+                    "runs.steps[0].if",
+                    "names secrets, which is not a context GitHub provides here",
+                )
+            ],
+        )
+
+    def test_the_bare_list_has_needs_and_vars_where_the_schema_does_not(
+        self,
+    ) -> None:
+        # Both lists are the runner's; they differ, so `vars` loads bare and
+        # fails inside delimiters.
+        for condition in (
+            "vars.V == 'a' && needs.b.result == 'success'",
+            "success() && inputs.ok && hashFiles('a') != ''",
+            "",
+            "  ",
+        ):
+            with self.subTest(condition=condition):
+                self.assertEqual(problems(step(run="x", **{"if": condition})), [])
+        self.assertEqual(
+            [what for _, what in problems(step(run="x", **{"if": "${{ vars.V }}"}))],
+            ["names vars, which is not a context GitHub provides here"],
+        )
+
+    def test_an_escaped_literal_condition_is_read_as_a_bare_one(self) -> None:
+        # The runner turns it into its text, then reads that text as the
+        # condition.
+        self.assertEqual(
+            [
+                what
+                for _, what in problems(step(run="x", **{"if": "${{ 'secrets.T' }}"}))
+            ],
+            ["names secrets, which is not a context GitHub provides here"],
+        )
+
+    def test_a_bare_condition_elsewhere_is_not_read(self) -> None:
+        # pre-if and post-if are read when the action runs, not when it loads.
+        manifest = {"runs": {"using": "node24", "main": "a.js", "pre-if": "secrets.T"}}
+        self.assertEqual(problems(manifest), [])
+
+
 if __name__ == "__main__":
     unittest.main()
