@@ -62,15 +62,12 @@ version, a 1.0, or a minor before 1.0 that changes an interface consumers use
 needs the maintainer's explicit approval before its tag is pushed.
 
 Every release gets a fixed `vMAJOR.MINOR.PATCH` tag. The repository blocks
-updates and deletions of those tags, and publishing the GitHub Release makes
-the tag and its assets immutable. The floating `vMAJOR` tag is moved to each new
-release in that major series, so workflows on `@v0` get fixes. Never attach a
-release to the floating tag, because immutability would stop the next move.
+updates and deletions of those tags, and publishing the GitHub Release makes the
+tag immutable.
 
 1. Bump `version` in `pyproject.toml` and merge that to `main`.
 2. Tag the merge commit `vMAJOR.MINOR.PATCH` and push the tag.
-3. Move `vMAJOR` to the same commit and push it.
-4. Publish the fixed tag: `gh release create vMAJOR.MINOR.PATCH --verify-tag`.
+3. Publish it: `gh release create vMAJOR.MINOR.PATCH --verify-tag`.
 
 ## License
 
