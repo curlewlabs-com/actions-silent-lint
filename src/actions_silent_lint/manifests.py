@@ -47,12 +47,14 @@ An unnamed position counts as not evaluated, so the table fails closed: a
 field GitHub starts evaluating shows up as a finding on a manifest that loads,
 which is loud and is fixed by naming it above.
 
+A string that is one expression holding only a quoted string literal,
+`${{ 'Use ${{ inputs.token }} here' }}`, is not an expression to GitHub: the
+runner turns it into the literal's text before it checks the position, so it
+loads anywhere, and it is read here the same way (expressions.py).
+
 This decides where an expression may sit, not which contexts it may name
 there: `${{ secrets.TOKEN }}` in a composite `run:` fails to load and passes
-here, since knowing that means parsing the expression language. The same
-limit runs the other way once: a string that is one expression holding only a
-quoted string literal is turned into that text before its position is
-checked, so GitHub accepts it anywhere, and this still reports it.
+here, since knowing that means parsing the expression language.
 """
 
 from __future__ import annotations
@@ -60,6 +62,8 @@ from __future__ import annotations
 from collections.abc import Mapping
 from dataclasses import dataclass
 from typing import Final
+
+from actions_silent_lint.expressions import literal_text
 
 # The opener alone, not a whole expression: an unterminated `${{` fails to load
 # too, and requiring the closer would pass it as plain text.
@@ -115,6 +119,12 @@ def is_evaluated(position: Position) -> bool:
     )
 
 
+def holds_expression(text: str) -> bool:
+    """Whether GitHub reads `text` as holding an expression, not as plain
+    text: an unterminated `${{` counts, an escaped literal does not."""
+    return EXPRESSION_OPEN in text and literal_text(text) is None
+
+
 def render(position: Position) -> str:
     """A position as an author searches for it: `inputs.token.description`."""
     rendered = ""
@@ -152,7 +162,7 @@ def judge(path: str, manifest: object) -> list[Finding]:
             for key, value in node.items():
                 name = str(key)
                 here = (*position, name)
-                if EXPRESSION_OPEN in name and not is_evaluated(here):
+                if holds_expression(name) and not is_evaluated(here):
                     findings.append(
                         Finding(path, render(here), "a key holds a ${{ }} expression")
                     )
@@ -162,7 +172,7 @@ def judge(path: str, manifest: object) -> list[Finding]:
                 walk(value, (*position, index))
         elif (
             isinstance(node, str)
-            and EXPRESSION_OPEN in node
+            and holds_expression(node)
             and not is_evaluated(position)
         ):
             findings.append(
