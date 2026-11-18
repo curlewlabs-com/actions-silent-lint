@@ -30,8 +30,11 @@ repository shares (ruff, shellcheck, actionlint and others) through the
 - **Tests ship with the change.** A bug fix or a feature includes a test in the
   same pull request. A test that guards a failure mode says which one.
 - **Fail closed.** A value the lint cannot read is a finding, with the reason.
-  The one exception is a `workflows:` pattern, which is counted and reported
-  as not checked, since judging it wrongly would fail a trigger GitHub fires.
+  The one exception is a `workflows:` entry using a pattern construct the
+  lint does not model, or a `!` entry, which is counted and reported as not
+  checked, since judging it by a guess could fail a trigger GitHub fires. A change to how
+  patterns match brings the GitHub behavior it rests on into
+  `tests/test_patterns.py`, measured, not inferred.
 - **No options.** An option is added only for a user who cannot use the lint
   without it.
 - **Read the parsed document.** Workflows and actions are read through `yq`,

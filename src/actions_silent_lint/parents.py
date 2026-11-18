@@ -6,12 +6,14 @@ the parent's `name:`. An entry that names no workflow is not an error anywhere:
 the trigger never fires, no run fails, and nothing reports it. Renaming a
 workflow is an ordinary edit that strands every trigger naming its old name.
 
-Only literal entries are judged. GitHub reads each entry as a pattern, in which
-`*`, `?`, `+`, `[`, `]`, `!` and `\\` have meanings, and that matching is done
-by GitHub's servers, where it cannot be checked against its documentation. So
-an entry holding any of those characters is counted and reported as not
-checked, rather than judged by a matcher that could be wrong in either
-direction. A literal entry matches a `name:` exactly.
+GitHub reads each entry as a filter pattern, and patterns.py matches them as
+GitHub was measured to: an entry with no pattern syntax matches the one name
+it spells, exactly. Each entry is judged on its own: one that matches no
+workflow's name is a finding, and so is one GitHub refuses as a pattern. An
+entry using a construct patterns.py does not model, and every `!` entry,
+whose effect depends on the whole list, is counted and reported as not
+checked rather than judged by a reading that could be wrong in either
+direction.
 
 The whole set of workflows is judged together, since a trigger's parent can be
 any workflow in the repository, and GitHub fires `workflow_run` only for
@@ -26,9 +28,7 @@ import json
 from collections.abc import Mapping
 from dataclasses import dataclass, field
 
-# The characters GitHub's filter pattern syntax gives a meaning to, the escape
-# among them, since an escaped character is a pattern GitHub decodes.
-PATTERN_CHARACTERS = frozenset("*?+[]!\\")
+from actions_silent_lint.patterns import NEGATION, Invalid, Unmodelled, compile_entry
 
 
 @dataclass(frozen=True)
@@ -42,7 +42,8 @@ class Finding:
 
 @dataclass(frozen=True)
 class Unchecked:
-    """A `workflows:` entry that is a pattern, so it was not judged."""
+    """A `workflows:` entry using a construct patterns.py does not model, so
+    it was not judged."""
 
     path: str
     entry: str
@@ -104,10 +105,6 @@ def declared_parents(document: object) -> list[str]:
     raise Unreadable(f"workflows: is neither a list nor a string: {value!r}")
 
 
-def is_pattern(entry: str) -> bool:
-    return not PATTERN_CHARACTERS.isdisjoint(entry)
-
-
 def judge(workflows: Mapping[str, object]) -> Verdict:
     """Judge every trigger in `workflows`, a map of each workflow's path to its
     parsed document, which must hold every workflow of the repository."""
@@ -132,15 +129,51 @@ def judge(workflows: Mapping[str, object]) -> Verdict:
         except Unreadable as error:
             verdict.findings.append(Finding(path, str(error)))
             continue
-        for entry in entries:
-            if is_pattern(entry):
-                verdict.unchecked.append(Unchecked(path, entry))
-            elif entry not in names:
-                verdict.findings.append(
-                    Finding(
-                        path,
-                        f"workflow_run names {json.dumps(entry)}, which is no"
-                        " workflow's name:, so the trigger never fires",
-                    )
-                )
+        verdict.findings.extend(_judge_trigger(path, entries, names, verdict))
     return verdict
+
+
+def _judge_trigger(
+    path: str, entries: list[str], names: set[str], verdict: Verdict
+) -> list[Finding]:
+    findings: list[Finding] = []
+    for entry in entries:
+        # A negation removes names other entries matched, so what it does is
+        # a question about the whole list, which is not judged here.
+        if entry.startswith(NEGATION):
+            verdict.unchecked.append(Unchecked(path, entry))
+            continue
+        shown = json.dumps(entry)
+        try:
+            pattern = compile_entry(entry)
+        except Invalid as reason:
+            findings.append(
+                Finding(
+                    path,
+                    f"workflow_run entry {shown} is not a pattern GitHub"
+                    f" accepts: {reason}",
+                )
+            )
+            continue
+        except Unmodelled:
+            verdict.unchecked.append(Unchecked(path, entry))
+            continue
+        if any(pattern.matches(name) for name in names):
+            continue
+        if pattern.literal:
+            what = (
+                f"workflow_run names {shown}, which is no workflow's name:,"
+                " so the trigger never fires"
+            )
+        else:
+            what = (
+                f"workflow_run pattern {shown} matches no workflow's name:,"
+                " so it never fires"
+            )
+            if entry in names:
+                what += (
+                    "; a workflow is named that, and matching it takes a \\"
+                    " before each pattern character"
+                )
+        findings.append(Finding(path, what))
+    return findings

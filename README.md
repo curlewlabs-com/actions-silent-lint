@@ -75,11 +75,17 @@ judged as GitHub reads it, not as it is written.
 
 **`workflow_run` triggers.** Each tracked `.github/workflows/*.yml` and
 `*.yaml`, in that directory itself as GitHub reads it. Every entry of
-`on.workflow_run.workflows`, as a list or as one string, must equal the `name:`
-of one of them exactly. A workflow without a `name:` cannot be named this way:
-add one. A workflow file whose top level is not a mapping, or a `workflows:`
-value that is not a string or a list of strings, is a finding, since reading it
-as naming nothing would pass the mistake this lint is for.
+`on.workflow_run.workflows`, as a list or as one string, must match the `name:`
+of one of them. GitHub reads each entry as a
+[filter pattern](https://docs.github.com/en/actions/reference/workflows-and-actions/workflow-syntax#filter-pattern-cheat-sheet),
+and the lint matches it the same way: `Build*` matches `Build and test` but not
+`Build / test`, `Build C\+\+` matches `Build C++`, and an entry with no
+pattern syntax matches only the name it spells, exactly. Each entry is judged
+on its own: a pattern that matches no workflow is a finding, and so is an entry
+GitHub refuses as a pattern (an unclosed `[`, for one). A workflow without a `name:` cannot be named this way: add one. A
+workflow file whose top level is not a mapping, or a `workflows:` value that is
+not a string or a list of strings, is a finding, since reading it as naming
+nothing would pass the mistake this lint is for.
 
 **Action manifests.** Each tracked `action.yml` and `action.yaml`, at any
 depth. The lint allows a `${{` only where GitHub's action metadata schema
@@ -105,13 +111,23 @@ as a finding on a manifest that loads, never as a silent pass.
 
 ## What it does not check
 
-- **Pattern entries.** GitHub reads a `workflows:` entry as a pattern, where
-  `*`, `?`, `+`, `[`, `]`, `!` and `\` have meanings. That matching happens on
-  GitHub's servers, so an entry holding any of those characters is not judged.
-  It never fails the run, and the lint prints how many entries were skipped and
-  which ones. This also means a literal name holding one of those characters,
-  such as `CI [x]`, is skipped, not passed as resolved: GitHub would read it as
-  a pattern.
+- **`workflows:` itself, directly.** Where GitHub's reference leaves the
+  pattern grammar open, the answer was measured on GitHub, but through a push's
+  `paths:` filter: a `workflow_run` trigger fires only from a repository's
+  default branch, so measuring one needs a trigger per pattern there. That
+  `workflows:` matches the same way rests on the reference, whose cheat sheet
+  covers "path, branch, tag, and workflow name filters" alike.
+  `src/actions_silent_lint/patterns.py` says what was found, and
+  `tests/test_patterns.py` holds every case.
+- **Pattern constructs that were not measured**: a `\` before a letter or
+  digit, which GitHub hands to a regular expression engine (`\d` matches a
+  digit), a `\` or anything outside ASCII inside `[...]`, a `]` with no `[`,
+  and a run of four or more `*`. An entry using one is not judged. It never
+  fails the run, and the lint prints how many entries were skipped and which
+  ones.
+- **`!` entries.** What a negation does depends on the entries before it, so a
+  `!` entry is counted as not checked in the same way, and a list whose
+  negations remove every workflow the others match passes.
 - **The rest of an expression's syntax.** The lint reads which contexts and
   functions an expression names, not whether the rest of it parses, so
   `${{ inputs.a == }}` passes and fails to load.
