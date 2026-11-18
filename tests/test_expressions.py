@@ -46,7 +46,7 @@ class LiteralText(unittest.TestCase):
             ("${{ \t'spaced'\n }}", "spaced"),
             ("${{ 'it''s' }}", "it's"),
             ("${{ '' }}", ""),
-            ("${{ ' ' }}", " "),
+            ("${{ '\u00a0' }}", "\u00a0"),
         ):
             with self.subTest(text=text):
                 self.assertEqual(literal_text(text), value)
@@ -84,7 +84,7 @@ class LiteralText(unittest.TestCase):
     def test_whitespace_is_dotnets(self) -> None:
         # U+001F is whitespace to Python, not to .NET, so the runner keeps it
         # and the expression no longer starts with a quote.
-        self.assertEqual(trim("\u001f x  "), "\u001f x")
+        self.assertEqual(trim("\u001f x \u2003"), "\u001f x")
         self.assertIsNone(literal_text("${{ \u001f'a' }}"))
 
 

@@ -221,6 +221,29 @@ class Manifests(unittest.TestCase):
         }
         self.assertEqual(judge("action.yml", manifest), [])
 
+    def test_an_escaped_key_is_judged_as_the_key_github_reads(self) -> None:
+        # The runner reads the key as its literal text before it picks the
+        # key's schema, so `${{ 'default' }}` is an input's default and its
+        # expression is evaluated; judged by the spelling instead, the valid
+        # expression beneath it would be reported.
+        manifest = {
+            "inputs": {"ref": {"${{ 'default' }}": "${{ github.ref }}"}},
+            "${{ 'runs' }}": {
+                "using": "composite",
+                "steps": [{"run": "${{ inputs.ref }}", "shell": "sh"}],
+            },
+        }
+        self.assertEqual(judge("action.yml", manifest), [])
+
+    def test_a_finding_beneath_an_escaped_key_names_it_as_written(self) -> None:
+        # An author searches for the spelling in the file, not the text the
+        # runner turns it into.
+        manifest = {"${{ 'runs' }}": {"using": "${{ inputs.kind }}"}}
+        self.assertEqual(
+            [f.position for f in judge("action.yml", manifest)],
+            ["${{ 'runs' }}.using"],
+        )
+
     def test_a_literal_beside_text_or_another_expression_is_a_finding(self) -> None:
         # Only the whole string as one literal is turned into text; anything
         # else is an expression, which these positions refuse.

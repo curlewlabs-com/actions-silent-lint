@@ -157,19 +157,25 @@ def judge(path: str, manifest: object) -> list[Finding]:
         return [Finding(path, "-", "the file is not an action mapping")]
     findings: list[Finding] = []
 
-    def walk(node: object, position: Position) -> None:
+    # `position` is what GitHub matches against its schema, with each key it
+    # reads as an escaped literal turned into that literal's text; `written`
+    # is the same position as the author spelled it, which is what a finding
+    # names.
+    def walk(node: object, position: Position, written: Position) -> None:
         if isinstance(node, Mapping):
             for key, value in node.items():
                 name = str(key)
-                here = (*position, name)
+                read = literal_text(name)
+                here = (*position, name if read is None else read)
+                shown = (*written, name)
                 if holds_expression(name) and not is_evaluated(here):
                     findings.append(
-                        Finding(path, render(here), "a key holds a ${{ }} expression")
+                        Finding(path, render(shown), "a key holds a ${{ }} expression")
                     )
-                walk(value, here)
+                walk(value, here, shown)
         elif isinstance(node, list):
             for index, value in enumerate(node):
-                walk(value, (*position, index))
+                walk(value, (*position, index), (*written, index))
         elif (
             isinstance(node, str)
             and holds_expression(node)
@@ -178,10 +184,10 @@ def judge(path: str, manifest: object) -> list[Finding]:
             findings.append(
                 Finding(
                     path,
-                    render(position),
+                    render(written),
                     "holds a ${{ }} expression where GitHub does not evaluate one",
                 )
             )
 
-    walk(manifest, ())
+    walk(manifest, (), ())
     return findings
