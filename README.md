@@ -59,7 +59,7 @@ As a command, from inside a repository, with `git` and
 macOS runner images ship both):
 
 ```sh
-pip install git+https://github.com/curlewlabs-com/actions-silent-lint@v0.1.0
+pip install git+https://github.com/curlewlabs-com/actions-silent-lint@v0.2.0
 actions-silent-lint
 ```
 
