@@ -4,7 +4,7 @@ build-backend = "flit_core.buildapi"
 
 [project]
 name = "actions-silent-lint"
-version = "0.2.0"
+version = "0.2.1"
 description = "Check that every GitHub Actions workflow_run trigger names a workflow that exists, and that no action manifest holds an expression GitHub refuses to load."
 readme = "README.md"
 license = "MIT OR Apache-2.0"
